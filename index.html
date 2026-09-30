@@ -94,15 +94,12 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:900;op
 /* ---------- fondo: papel recortado + luz del cursor ---------- */
 .campo{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden;contain:strict;}
 .campo .recorte{position:absolute;left:0;top:0;will-change:transform;transition:opacity .6s;}
-.hervido>img{position:absolute;inset:0;width:100%;height:100%;opacity:0;}
-.hervido>img:first-child{opacity:1;}
+.hervido>*{position:absolute;inset:0;width:100%;height:100%;opacity:0;}
+.hervido>*:first-child{opacity:1;}
 /* los cuadros recién se animan cuando están todos decodificados: así nunca queda un instante sin dibujo */
-.hervido.vivo>img{animation:cs-boil .75s steps(1,end) infinite;}
-.hervido.vivo>img:nth-child(1){animation-delay:-.75s}.hervido.vivo>img:nth-child(2){animation-delay:-.625s}
-.hervido.vivo>img:nth-child(3){animation-delay:-.5s}.hervido.vivo>img:nth-child(4){animation-delay:-.375s}
-.hervido.vivo>img:nth-child(5){animation-delay:-.25s}.hervido.vivo>img:nth-child(6){animation-delay:-.125s}
+/* fondos quietos: el trazo a mano se mantiene, pero no tiembla */
 @keyframes cs-boil{0%,19%{opacity:1}20%,100%{opacity:0}}
-@media (prefers-reduced-motion:reduce){.hervido.vivo>img{animation:none}.hervido>img:first-child{opacity:1}}
+@media (prefers-reduced-motion:reduce){.hervido.vivo>*{animation:none}.hervido>*:first-child{opacity:1}}
 @media(max-width:700px){.campo{opacity:.55;}}
 .luz{position:fixed;left:0;top:0;width:840px;height:840px;margin:-420px 0 0 -420px;z-index:0;pointer-events:none;opacity:.9;will-change:transform;
   transform:translate3d(50vw,30vh,0);background:radial-gradient(circle 420px at 50% 50%,rgba(231,163,131,.22),transparent 70%);}
@@ -732,7 +729,7 @@ html:not([data-modo="licencia"]) .solo-licencia{display:none;}
 
 <svg class="defs-globales" width="0" height="0" aria-hidden="true" focusable="false">
   <filter id="csBoil" x="-4%" y="-4%" width="108%" height="108%">
-    <feTurbulence class="cs-boil-t" type="fractalNoise" baseFrequency="0.02" numOctaves="2" seed="1"/>
+    <feTurbulence type="fractalNoise" baseFrequency="0.02" numOctaves="2" seed="1"/>
     <feDisplacementMap in="SourceGraphic" scale="3.4" xChannelSelector="R" yChannelSelector="G"/></filter>
   <filter id="csBoilS" x="-4%" y="-4%" width="108%" height="108%">
     <feTurbulence class="cs-boil-t" type="fractalNoise" baseFrequency="0.028" numOctaves="2" seed="1"/>
@@ -3317,15 +3314,32 @@ function arrancarCiclo(){
 /* hornear: 6 cuadros ya temblados de un dibujo SVG, como imágenes. El filtro corre una vez por cuadro y nunca más. */
 function hornear(vb,w,h,dentro,escala,frec){
   let out='';
-  for(let k=1;k<=6;k++){
+  for(let k=1;k<=1;k++){
     const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="${vb}"><filter id="b" x="-4%" y="-4%" width="108%" height="108%"><feTurbulence type="fractalNoise" baseFrequency="${frec}" numOctaves="2" seed="${k}"/><feDisplacementMap in="SourceGraphic" scale="${escala}" xChannelSelector="R" yChannelSelector="G"/></filter><g filter="url(#b)">${dentro}</g></svg>`;
     out+=`<img alt="" decoding="async" src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}">`;
   }
   return out;
 }
 function avivar(el){
+  // Cada cuadro se pinta UNA vez en un lienzo y se guarda como PNG. Firefox, Zen y Safari recalculan el
+  // filtro de una imagen SVG cada vez que la muestran, y eso era el parpadeo; un PNG ya viene calculado.
   const imgs=[...el.querySelectorAll('img')];
-  Promise.all(imgs.map(i=>i.decode?i.decode().catch(()=>{}):Promise.resolve())).then(()=>el.classList.add('vivo'));
+  Promise.all(imgs.map(i=>i.decode?i.decode().catch(()=>{}):Promise.resolve())).then(()=>{
+    if(!el.clientWidth||!el.clientHeight){ el.classList.add('vivo'); return; }   // oculto: se queda como está
+    const r=Math.min(window.devicePixelRatio||1,2), w=Math.max(1,Math.round(el.clientWidth*r)), h=Math.max(1,Math.round(el.clientHeight*r));
+    const pasar=img=>new Promise(ok=>{
+      try{
+        const c=document.createElement('canvas'); c.width=w; c.height=h;
+        c.getContext('2d').drawImage(img,0,0,w,h);
+        c.toBlob(b=>{
+          if(!b) return ok();
+          const u=URL.createObjectURL(b), n=new Image(); n.src=u;
+          (n.decode?n.decode():Promise.resolve()).catch(()=>{}).then(()=>{ img.src=u; ok(); });
+        },'image/png');
+      }catch(e){ ok(); }   // si el navegador no deja dibujarla, queda la SVG tal cual
+    });
+    Promise.all(imgs.map(pasar)).then(()=>requestAnimationFrame(()=>el.classList.add('vivo')));
+  });
 }
 /* -------------------- fondo de papel recortado -------------------- */
 const campo=document.getElementById('campo');
